@@ -21,10 +21,13 @@ const generateGlobTasks = (patterns, taskOpts) => {
 
 	const globTasks = [];
 
-	taskOpts = Object.assign({
-		ignore: [],
-		expandDirectories: true
-	}, taskOpts);
+	taskOpts = Object.assign(
+		{
+			ignore: [],
+			expandDirectories: true
+		},
+		taskOpts
+	);
 
 	patterns.forEach((pattern, i) => {
 		if (isNegative(pattern)) {
@@ -58,9 +61,10 @@ const globDirs = (task, fn) => {
 	return fn(task.pattern, opts);
 };
 
-const getPattern = (task, fn) => task.opts.expandDirectories ? globDirs(task, fn) : [task.pattern];
+const getPattern = (task, fn) =>
+	task.opts.expandDirectories ? globDirs(task, fn) : [task.pattern];
 
-module.exports = (patterns, opts) => {
+module.exports = (patterns, opts, cb) => {
 	let globTasks;
 
 	try {
@@ -69,13 +73,18 @@ module.exports = (patterns, opts) => {
 		return Promise.reject(err);
 	}
 
-	const getTasks = Promise.all(globTasks.map(task => Promise.resolve(getPattern(task, dirGlob))
-		.then(globs => Promise.all(globs.map(glob => ({
-			pattern: glob,
-			opts: task.opts
-		}))))
-	))
-		.then(tasks => arrayUnion.apply(null, tasks));
+	const getTasks = Promise.all(
+		globTasks.map(task =>
+			Promise.resolve(getPattern(task, dirGlob)).then(globs =>
+				Promise.all(
+					globs.map(glob => ({
+						pattern: glob,
+						opts: task.opts
+					}))
+				)
+			)
+		)
+	).then(tasks => arrayUnion.apply(null, tasks));
 
 	const getFilter = () => {
 		return Promise.resolve(
@@ -85,16 +94,23 @@ module.exports = (patterns, opts) => {
 		);
 	};
 
-	return getFilter()
-		.then(filter => {
-			return getTasks
-				.then(tasks => Promise.all(tasks.map(task => fastGlob(task.pattern, task.opts))))
-				.then(paths => arrayUnion.apply(null, paths))
-				.then(paths => paths.filter(p => !filter(p)));
-		});
+	return getFilter().then(filter => {
+		return getTasks
+			.then(tasks =>
+				Promise.all(tasks.map(task => fastGlob(task.pattern, task.opts)))
+			)
+			.then(paths => arrayUnion.apply(null, paths))
+			.then(paths => paths.filter(p => !filter(p)))
+			.then(paths => {
+				if (typeof cb !== 'undefined' && typeof cb !== 'function') {
+					throw new TypeError('Third argument must be a function');
+				}
+				return typeof cb === 'undefined' ? paths : paths.map(p => cb(p));
+			});
+	});
 };
 
-module.exports.sync = (patterns, opts) => {
+module.exports.sync = (patterns, opts, cb) => {
 	const globTasks = generateGlobTasks(patterns, opts);
 
 	const getFilter = () => {
@@ -113,16 +129,24 @@ module.exports.sync = (patterns, opts) => {
 
 	const filter = getFilter();
 
-	return tasks.reduce(
-		(matches, task) => arrayUnion(matches, fastGlob.sync(task.pattern, task.opts)),
-		[]
-	).filter(p => !filter(p));
+	return tasks
+		.reduce(
+			(matches, task) =>
+				arrayUnion(matches, fastGlob.sync(task.pattern, task.opts)),
+			[]
+		)
+		.filter(p => !filter(p))
+		.map(p => {
+			if (typeof cb !== 'undefined' && typeof cb !== 'function') {
+				throw new TypeError('Third argument must be a function');
+			}
+			return typeof cb === 'undefined' ? p : cb(p);
+		});
 };
 
 module.exports.generateGlobTasks = generateGlobTasks;
 
-module.exports.hasMagic = (patterns, opts) => []
-	.concat(patterns)
-	.some(pattern => glob.hasMagic(pattern, opts));
+module.exports.hasMagic = (patterns, opts) =>
+	[].concat(patterns).some(pattern => glob.hasMagic(pattern, opts));
 
 module.exports.gitignore = gitignore;
