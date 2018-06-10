@@ -60,7 +60,7 @@ const globDirs = (task, fn) => {
 
 const getPattern = (task, fn) => task.opts.expandDirectories ? globDirs(task, fn) : [task.pattern];
 
-module.exports = (patterns, opts) => {
+module.exports = (patterns, opts, cb) => {
 	let globTasks;
 
 	try {
@@ -90,11 +90,17 @@ module.exports = (patterns, opts) => {
 			return getTasks
 				.then(tasks => Promise.all(tasks.map(task => fastGlob(task.pattern, task.opts))))
 				.then(paths => arrayUnion.apply(null, paths))
-				.then(paths => paths.filter(p => !filter(p)));
+				.then(paths => paths.filter(p => !filter(p)))
+				.then(paths => {
+					if (typeof cb !== 'undefined' && typeof cb !== 'function') {
+						throw new TypeError('Third argument must be a function');
+					}
+					return typeof cb === 'undefined' ? paths : paths.map(p => cb(p));
+				});
 		});
 };
 
-module.exports.sync = (patterns, opts) => {
+module.exports.sync = (patterns, opts, cb) => {
 	const globTasks = generateGlobTasks(patterns, opts);
 
 	const getFilter = () => {
@@ -116,7 +122,13 @@ module.exports.sync = (patterns, opts) => {
 	return tasks.reduce(
 		(matches, task) => arrayUnion(matches, fastGlob.sync(task.pattern, task.opts)),
 		[]
-	).filter(p => !filter(p));
+	).filter(p => !filter(p))
+	.map(p => {
+		if (typeof cb !== 'undefined' && typeof cb !== 'function') {
+			throw new TypeError('Third argument must be a function');
+		}
+		return typeof cb === 'undefined' ? p : cb(p);
+	});
 };
 
 module.exports.generateGlobTasks = generateGlobTasks;
